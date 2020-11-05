@@ -1,11 +1,11 @@
 /*
-  Comple：make
-  Run: ./bme280
-  
+  Compile：make
+  Run: ./check_bme280
+
   This Demo is tested on Raspberry PI 3B+
   you can use I2C or SPI interface to test this Demo
-  When you use I2C interface,the default Address in this demo is 0X77
-  When you use SPI interface,PIN 27 define SPI_CS
+  When you use I2C interface, the default Address in this demo is 0X77
+  When you use SPI interface, PIN 27 define SPI_CS
 */
 #include "bme280.h"
 #include <stdio.h>
@@ -14,10 +14,10 @@
 #include <wiringPiSPI.h>
 
 //Raspberry 3B+ platform's default SPI channel
-#define channel 0  
+#define channel 0
 
 //Default write it to the register in one time
-#define USESPISINGLEREADWRITE 0 
+#define USESPISINGLEREADWRITE 0
 
 #include <string.h>
 #include <stdlib.h>
@@ -29,6 +29,10 @@
 #define IIC_Dev  "/dev/i2c-1"
 
 #define FAHRENHEIT 1
+#define CELSIUS 2
+#define	KELVIN 3
+#define DEFAULT_TEMP_SCALE FAHRENHEIT
+
 #define MODE_TEMPERATURE 1
 #define MODE_PRESSURE 2
 #define MODE_MOISTURE 3
@@ -65,6 +69,7 @@ void usage(const char *cmd) {
 	fprintf(stdout, "   -t: check temperature\n");
 	fprintf(stdout, "   -p: check pressure\n");
 	fprintf(stdout, "   -m: check moisture\n");
+	fprintf(stdout, "   -s <temperature scale>: fahrenheit, celsius, or kelvin\n");
 	fprintf(stdout, "   -c <n>: numbers below this value are considered critical\n");
 	fprintf(stdout, "   -w <n>: numbers below this value are considered a warning condition\n");
 	fprintf(stdout, "   -W <n>: numbers above this value are considered a warning condition\n");
@@ -90,15 +95,17 @@ int main(int argc, char* argv[])
 	uint8_t settings_sel = BME280_STANDBY_SEL | BME280_FILTER_SEL;
 	struct bme280_data comp_data;
 	signed char opt;
+	const char *perf = "temperature";
 	int8_t mode = 0;
-	float lcrit = -10000.0, lwarn = -10000.0, hcrit = 10000.0, hwarn = 10000.0, outval;
+	float lcrit = -10000.0, lwarn = -10000.0, hcrit = 10000.0, hwarn = 10000.0, outval = -1.0;
 	int res = 0;
+	int scale = DEFAULT_TEMP_SCALE;
 
 #ifdef DEBUG
 	fprintf(stdout, "Starting...\n");
 #endif
 
-	while (-1 != (opt = getopt(argc, argv, "c:w:C:W:tpmh"))) {
+	while (-1 != (opt = getopt(argc, argv, "c:w:C:W:tpmhs:"))) {
 #ifdef DEBUG
 	fprintf(stdout, "Handling option %c (%d)\n", opt, opt);
 #endif
@@ -136,9 +143,33 @@ int main(int argc, char* argv[])
 			break;
 		case 'p': /* pressure */
 			mode = MODE_PRESSURE;
+			perf = "pressure";
 			break;
 		case 'm': /* moisture */
 			mode = MODE_MOISTURE;
+			perf = "humidity";
+			break;
+		case 's': /* temperature scale */
+			switch (optarg[0]) {
+			case 'f':
+			case 'F':
+				scale = FAHRENHEIT;
+				perf = "fahrenheit";
+				break;
+			case 'c':
+			case 'C':
+				scale = CELSIUS;
+				perf = "celsius";
+				break;
+			case 'k':
+			case 'K':
+				scale = KELVIN;
+				perf = "kelvin";
+				break;
+			default:
+				usage(argv[0]);
+				exit(1);
+			}
 			break;
 		case 'h': /* help */
 			usage(argv[0]);
@@ -198,13 +229,19 @@ int main(int argc, char* argv[])
 
 	switch (mode) {
 	case MODE_TEMPERATURE: /* temperature */
-#ifdef FAHRENHEIT
-		outval = comp_data.temperature * 1.8 + 32.0;
-		fprintf(stdout, "%.1f°F", outval);
-#else
-		outval = comp_data.temperature;
-		fprintf(stdout, "%.1f°C", outval);
-#endif
+		switch (scale) {
+		case FAHRENHEIT:
+			outval = comp_data.temperature * 1.8 + 32.0;
+			fprintf(stdout, "%.1f°F", outval);
+			break;
+		case CELSIUS:
+			outval = comp_data.temperature;
+			fprintf(stdout, "%.1f°C", outval);
+			break;
+		case KELVIN:
+			outval = comp_data.temperature + 273.15;
+			fprintf(stdout, "%.1fK", outval);
+		}
 		break;
 	case MODE_PRESSURE:
 		outval = comp_data.pressure / 100.0;
@@ -216,19 +253,18 @@ int main(int argc, char* argv[])
 	}
 
 	if (outval < lcrit) {
-		fprintf(stdout, " (＜%.1f)\n", lcrit);
+		fprintf(stdout, " (＜%.1f)", lcrit);
 		res = 2;
 	} else if (outval < lwarn) {
-		fprintf(stdout, " (＜%.1f)\n", lwarn);
+		fprintf(stdout, " (＜%.1f)", lwarn);
 		res = 1;
 	} else if (outval > hwarn) {
-		fprintf(stdout, " (＞%.1f)\n", hwarn);
+		fprintf(stdout, " (＞%.1f)", hwarn);
 		res = 1;
 	} else if (outval > hcrit) {
-		fprintf(stdout, " (＞%.1f)\n", hcrit);
+		fprintf(stdout, " (＞%.1f)", hcrit);
 		res = 2;
-	} else {
-		fprintf(stdout, "\n");
 	}
+	fprintf(stdout, " | %s=%.2f\n", perf, outval);
 	return res;
 }
